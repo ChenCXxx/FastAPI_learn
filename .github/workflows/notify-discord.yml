@@ -1,0 +1,94 @@
+# This is a basic workflow to help you get started with Actions
+
+name: Notify Discord
+
+# Controls when the workflow will run
+on:
+  # Triggers the workflow on push or pull request events but only for the "main" branch
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+    types: [opened, closed, reopened]
+  workflow_run:
+    workflows: ["Build", "CI", "Test"]
+    types:
+      - completed
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  notify-discord:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - name: Send Discord Notification
+        run: |
+          EVENT="${{ github.event_name }}"
+          ACTOR="${{ github.actor }}"
+          REPO="${{ github.repository }}"
+          BRANCH="${{ github.ref_name }}"
+          COMMIT="${{ github.event.head_commit.message || 'No commit message' }}"
+          PR_TITLE="${{ github.event.pull_request.title || 'N/A' }}"
+          URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          COLOR=3447003
+          STATUS=""
+          TITLE=""
+          FIELDS=""
+
+          if [[ "$EVENT" == "push" ]]; then
+            STATUS="🚀 Push Event"
+            TITLE="🆕 Commit pushed to \`${BRANCH}\`"
+            FIELDS="[
+              {\"name\": \"Commit Message\", \"value\": \"${COMMIT}\"},
+              {\"name\": \"Branch\", \"value\": \"${BRANCH}\", \"inline\": true},
+              {\"name\": \"Action Link\", \"value\": \"[🔗 查看 Workflow Run](${URL})\", \"inline\": true}
+            ]"
+            COLOR=3447003
+
+          elif [[ "$EVENT" == "pull_request" ]]; then
+            ACTION="${{ github.event.action }}"
+            STATUS="🔃 Pull Request ${ACTION^}"
+            TITLE="PR: ${PR_TITLE}"
+            FIELDS="[
+              {\"name\": \"Branch\", \"value\": \"${BRANCH}\", \"inline\": true},
+              {\"name\": \"Action Link\", \"value\": \"[🔗 查看 PR Workflow](${URL})\", \"inline\": true}
+            ]"
+            COLOR=7506394
+
+          elif [[ "$EVENT" == "workflow_run" ]]; then
+            CONCLUSION="${{ github.event.workflow_run.conclusion }}"
+            if [[ "$CONCLUSION" == "success" ]]; then
+              STATUS="✅ Build Passed"
+              COLOR=3066993
+            else
+              STATUS="❌ Build Failed"
+              COLOR=15158332
+            fi
+            TITLE="Workflow Run Result for \`${REPO}\`"
+            FIELDS="[
+              {\"name\": \"Status\", \"value\": \"${STATUS}\"},
+              {\"name\": \"Branch\", \"value\": \"${BRANCH}\", \"inline\": true},
+              {\"name\": \"Action Link\", \"value\": \"[🔗 查看 Workflow](${URL})\", \"inline\": true}
+            ]"
+          fi
+
+          curl -X POST -H "Content-Type: application/json" \
+            -d "{
+              \"username\": \"GitHub Bot\",
+              \"embeds\": [{
+                \"title\": \"${STATUS}\",
+                \"description\": \"📦 Repo: ${REPO}\n🧑‍💻 By: ${ACTOR}\",
+                \"fields\": ${FIELDS},
+                \"color\": ${COLOR},
+                \"footer\": { \"text\": \"GitHub Actions\" },
+                \"timestamp\": \"${TIME}\"
+              }]
+            }" \
+            ${{ secrets.DISCORD_WEBHOOK }}
